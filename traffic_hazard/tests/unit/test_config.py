@@ -79,6 +79,7 @@ def test_fingerprint_changes_with_settings(tmp_path: Path) -> None:
         ("model:\n  temperature: true\n", "temperature"),
         ("video:\n  window_seconds: '5'\n", "window_seconds"),
         ("video:\n  reject_out_of_order: false\n", "reject_out_of_order"),
+        ("video:\n  assessment_interval_seconds: 0.3333333\n", "whole number of microseconds"),
         ("workflow:\n  max_total_model_calls: 3\n", "max_total_model_calls >= 4"),
     ],
 )

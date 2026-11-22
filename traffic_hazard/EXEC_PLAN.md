@@ -11,8 +11,8 @@ After this work a developer can, from `traffic_hazard/`, install an isolated app
 - [x] (2026-11-22) Read spec, repo instructions, PLANS.md, implementation-strategy and implementation-final-review skills; confirmed scope with user (Phases 0 and 1 only, commit per phase, fake provider only, synthetic footage only).
 - [x] (2026-11-22) Phase 0: scaffold package, configuration loader/validator, domain contracts, fake provider, CLI (`doctor`, `config-check`, `self-test`), offline tests with network guard, BUILD_STATUS.md.
 - [x] (2026-11-22) Phase 0: independent review (2 cycles, all findings fixed), gate recorded, commit.
-- [ ] Phase 1: video reader (PyAV), encoding, window builder, replay clock, `windows` command, synthetic fixtures, causality tests.
-- [ ] Phase 1: independent review, manual contact-sheet inspection, gate recorded, commit.
+- [x] (2026-11-22) Phase 1: video reader (PyAV), encoding, window builder, replay clock, `windows` command, synthetic fixtures, causality tests.
+- [x] (2026-11-22) Phase 1: independent review (2 cycles, all findings fixed), manual contact-sheet inspection, gate recorded, commit.
 
 ## Surprises & Discoveries
 
@@ -47,7 +47,7 @@ After this work a developer can, from `traffic_hazard/`, install an isolated app
 
 ## Outcomes & Retrospective
 
-(to be written at each phase gate)
+Phases 0 and 1 pass their offline gates (see BUILD_STATUS.md). A developer can install the app, validate configs, run an offline self-test, and turn a local video into causal, content-addressed observation windows with manifests and contact sheets. The independent reviews caught two real causality defects that the first tests missed: untimed decode issues attributed to the previous frame, and a whole-file-hash default source ID. The lesson is to test causality end to end through the CLI, not only at the builder boundary. Remaining gaps: native-video transport, real footage and every model-dependent phase.
 
 ## Context and Orientation
 
@@ -71,7 +71,7 @@ From `traffic_hazard/`:
     uv run traffic-hazard self-test
     uv run pytest -q tests -m 'not live'
     uv run python scripts/make_fixture.py --out data/dev/fixture.mp4
-    uv run traffic-hazard windows --video data/dev/fixture.mp4 --config configs/local_fake.yaml --out runs/dev_windows --contact-sheet
+    uv run traffic-hazard windows --video data/dev/fixture.mp4 --config configs/local_fake.yaml --out runs/dev_windows --source-id camera-dev-01 --contact-sheet
 
 ## Validation and Acceptance
 

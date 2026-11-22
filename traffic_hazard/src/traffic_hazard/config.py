@@ -84,6 +84,9 @@ class VideoConfig(_ConfigModel):
 
     @model_validator(mode="after")
     def _check_frame_cap(self) -> VideoConfig:
+        for name in ("window_seconds", "assessment_interval_seconds"):
+            if (Fraction(str(getattr(self, name))) * 1_000_000).denominator != 1:
+                raise ValueError(f"{name} must be a whole number of microseconds")
         if self.ticks_per_window > self.max_frames:
             raise ValueError(
                 f"sampling {self.sample_fps} FPS over {self.window_seconds} s needs "

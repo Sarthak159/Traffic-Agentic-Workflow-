@@ -1,13 +1,13 @@
 # Build status
 
-Current phase: 1 (in progress)
+Current phase: 2 (not started; awaiting approval to advance)
 Repository commit (base for Phase 0): b2772bf00ae461c66c469ce2b599295445df1612 (branch `traffic-agent-workflow`)
 Last verified environment: macOS 27.0.1 arm64, CPython 3.12.11 (uv 0.11.3), openai-agents 0.25.0 (editable, repo root), pydantic 2.14.4, PyAV 16.1.0, numpy 2.5.5, pillow 12.3.0
 
 | Phase | Status (pending/in progress/blocked/passed) | Evidence |
 |---|---|---|
 | 0 | passed (offline) | see Phase 0 checkpoint below |
-| 1 | pending | not run |
+| 1 | passed (offline, synthetic footage) | see Phase 1 checkpoint below |
 | 2 | pending | fake and real gates tracked separately; real gate blocked: no Qwen access yet |
 | 3–11 | pending | not run |
 
@@ -41,3 +41,35 @@ Last verified environment: macOS 27.0.1 arm64, CPython 3.12.11 (uv 0.11.3), open
 - Blockers: none for Phase 0.
 - Next smallest task: Phase 1 video reader and causal window builder.
 - Rollback config or commit: revert the Phase 0 commit (additive directory only).
+
+## Phase 1 checkpoint (2026-11-22)
+
+- Files changed: `src/traffic_hazard/cli.py` (new `windows` command); new `src/traffic_hazard/video/{reader,windows,encoding,extract,synthetic}.py`, `runtime/clock.py`, `storage/artifacts.py`, `scripts/make_fixture.py`, `data/README.md`, tests `tests/unit/{test_windows,test_clock}.py`, `tests/contract/test_causality.py`, `tests/integration/{test_video_reader,test_windows_cli}.py`, `tests/fixtures/video_helpers.py`.
+- Commands actually run (from `traffic_hazard/`):
+  - `uv run pytest -q tests` → 106 passed (after review fixes).
+  - `uv run python scripts/make_fixture.py --out data/dev/fixture.mp4` → 12 s synthetic clip, 30 FPS, libx264, 640×360.
+  - `uv run traffic-hazard windows --video data/dev/fixture.mp4 --config configs/local_fake.yaml --out runs/dev_windows --source-id camera-dev-01 --contact-sheet --save-frames` → status ok, 360 frames (0.0–11.966667 s), 7 windows (cutoffs 5–11 s), 0 skipped, no decode issues.
+  - From repo root: `uv run ruff check traffic_hazard` and `ruff format --check traffic_hazard` → clean.
+- Gate:
+  - [x] At every cutoff all selected frame timestamps lie in `(t-5, t]` (contract validator on `ObservationWindow`; `test_all_selected_frames_lie_in_the_causal_interval`; streaming result equals a brute-force oracle over 8 random variable-rate streams).
+  - [x] Changing frames after the cutoff leaves the window hash unchanged (in-memory test and real ffv1 files differing only after 8 s; prefix test: truncating the stream after t reproduces window t exactly).
+  - [x] Repeat extraction gives identical IDs and hashes (libx264 file decoded twice; CLI run twice gives byte-identical `windows.jsonl`).
+  - [x] Variable-rate, short, missing/corrupt, duplicate-timestamp and end-of-stream fixtures pass (`test_video_reader.py`, `test_windows.py`, `test_windows_cli.py`; truncated and byte-corrupted files decode without crashing).
+  - [x] Manual inspection: both contact sheets of `runs/dev_windows` checked by eye. 20 frames each, labels strictly increasing, burnt-in times equal the frame IDs, all inside (t-5, t]; the last source frame (11.967 s) is correctly excluded from cutoff 11.
+- Independent review (ordinary tier): fresh-context reviewer, 2 cycles. Cycle 1 found P2×1 (the default content-hash source ID made window IDs depend on footage after the cutoff), P3×1 (sub-microsecond config values could crash window validation) and P3×1 (`--out` naming a file raised a traceback). All were fixed with tests. Cycle 2 confirmed the fixes and found P3×1 (a stale command in EXEC_PLAN.md, now fixed). The cycle 2 review also covered the post-review Phase 0 config changes (the unhashable-key check and exact-type checks on `Literal` fields): no findings.
+- Real model tested? no (not in Phase 1 scope).
+- Decisions / deviations:
+  - `transport: native_video` is rejected with a clear error; native video clips are deferred to Phase 2, when the provider's video input format is known.
+  - Cutoffs lie on the grid `n × interval` of source time, and the first needs a full window after the first frame.
+  - Times are exact fractions, quantized to integer microseconds; frame IDs are `f-<seconds>.<6 digits>`.
+  - Frame hashes cover the decoded and resized RGB pixels (`rgb24-bilinear-v1`), not JPEG bytes.
+  - Quality flags: `gap_ticks:N` (no frame inside the window for a tick), `repeated_frame_ticks:N`, `stale_ticks:N` (the selected frame is at least one sampling interval older than its tick), `decode_issue:<kind>`.
+  - Untimed decode issues are attributed to the next accepted frame, so they cannot leak into an earlier window.
+  - Lossy inter-frame codecs (h264) can change the pixels of earlier B-frames when later footage is re-encoded. That is an encoding effect, not pipeline leakage, so the real-file future-leakage test uses intra-only ffv1.
+  - `--overwrite` deletes only this command's own artifacts.
+  - `--source-id` is required (a deviation from the spec's example command). A whole-file hash default would make window IDs depend on footage after the cutoff, and a file-name default could leak labels. The file SHA-256 is recorded only in `extraction_summary.json`.
+  - `window_seconds` and `assessment_interval_seconds` must be whole microseconds, so exact selection and the written times cannot disagree.
+  - Known limitations: a large backward timestamp jump (concatenated segments, PTS reset) drops all later footage as `out_of_order`. With B-frame codecs, an undecodable packet's `corrupt` flag may be attributed to a frame at or before t, as decode order differs from presentation order (an inherent codec limit; real-file leakage tests use intra-only ffv1). Missing and duplicate PTS are covered by in-memory tests only. Frame hashes cover resized pixels, not JPEG bytes; the JPEG quality is recorded in the summary.
+- Blockers: none for the offline gate. Real footage is not yet authorized; only synthetic clips were used.
+- Next smallest task: Phase 2, the provider abstraction and capability probe (fake path; the real probe is blocked on Qwen access).
+- Rollback config or commit: revert the Phase 1 commit; Phase 0 stays usable.

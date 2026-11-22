@@ -118,7 +118,55 @@ def build_parser() -> argparse.ArgumentParser:
     )
     selftest.add_argument("--config", type=Path, default=APP_ROOT / "configs" / "local_fake.yaml")
     selftest.set_defaults(func=cmd_self_test)
+
+    windows = sub.add_parser(
+        "windows", help="extract causal observation windows from a local video"
+    )
+    windows.add_argument("--video", type=Path, required=True)
+    windows.add_argument("--config", type=Path, required=True)
+    windows.add_argument("--out", type=Path, required=True)
+    windows.add_argument(
+        "--source-id", required=True, help="stable logical camera/session ID, e.g. camera-dev-01"
+    )
+    windows.add_argument("--save-frames", action="store_true", help="write private resized JPEGs")
+    windows.add_argument("--contact-sheet", action="store_true", help="write first/last sheets")
+    windows.add_argument("--overwrite", action="store_true", help="allow a non-empty --out")
+    windows.set_defaults(func=cmd_windows)
     return parser
+
+
+def cmd_windows(args: argparse.Namespace) -> int:
+    from .storage.artifacts import OutputExistsError
+    from .video.extract import ExtractionError, ExtractionOptions, extract_windows
+
+    cfg = _load(args.config)
+    if cfg is None:
+        return EXIT_USAGE
+    apply_tracing_policy(cfg)
+    options = ExtractionOptions(
+        save_frames=args.save_frames, contact_sheets=args.contact_sheet, overwrite=args.overwrite
+    )
+    try:
+        summary = extract_windows(
+            args.video, cfg, args.out, source_id=args.source_id, options=options
+        )
+    except (ExtractionError, OutputExistsError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return EXIT_USAGE
+    print(f"status            {summary['status']}")
+    source = summary["source"]
+    print(f"source            {source['source_id']} (sha256 {source['sha256'][:16]}…)")
+    print(
+        f"frames            {summary['frames_accepted']} accepted, "
+        f"{summary['first_frame_s']} – {summary['last_frame_s']} s"
+    )
+    skipped = len(summary["skipped_cutoffs"])
+    print(f"windows           {summary['windows_emitted']} emitted, {skipped} skipped")
+    print(f"issues            {summary['issues'] or 'none'}")
+    for sheet in summary["contact_sheets"]:
+        print(f"contact sheet     {args.out / sheet}")
+    print(f"output            {args.out / 'windows.jsonl'}")
+    return EXIT_OK if summary["status"] == "ok" else EXIT_FAILED
 
 
 def main(argv: Sequence[str] | None = None) -> int:
