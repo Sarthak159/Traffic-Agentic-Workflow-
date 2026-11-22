@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import copy
 import json
 import time
 from collections import defaultdict
@@ -13,17 +12,19 @@ from typing import Any, Literal
 
 from ..hashing import fingerprint
 from .base import ModelError, ModelRequest, ModelResult
+from .output import MAX_RAW_CHARS, MalformedOutput, parse_model_json
 
-FakeKind = Literal["json", "malformed", "timeout", "error"]
+FakeKind = Literal["json", "raw", "timeout", "error", "raise"]
 
 
 @dataclass(frozen=True)
 class FakeResponse:
     """One scripted provider behavior.
 
-    `json` returns `payload` (or the built-in default for the requested schema). `malformed` returns
-    unparseable `raw_text`. `timeout` simulates exceeding the request deadline, and `error` a
-    provider failure.
+    `json` serializes `payload` (or the built-in default for the requested schema). `raw` returns
+    `raw_text` verbatim, which is how malformed output is scripted. Both go through the same strict
+    parser a real provider uses. `timeout` simulates exceeding the request deadline, `error` a
+    reported provider failure, and `raise` a provider that raises (for the guard).
     """
 
     kind: FakeKind = "json"
@@ -76,23 +77,26 @@ class FakeProvider:
             await asyncio.sleep(response.delay_s)
         if response.kind == "error":
             return self._error(request, "provider_error", response.message, started)
-        if response.kind == "malformed":
+        if response.kind == "raise":
+            raise RuntimeError(response.message)
+        if response.kind == "raw":
+            raw_text = response.raw_text
+        else:
+            payload = response.payload if response.payload is not None else default_payload(request)
+            raw_text = json.dumps(payload, sort_keys=True)
+        try:
+            parsed = parse_model_json(raw_text)
+        except MalformedOutput as exc:
             return ModelResult(
-                raw_text=response.raw_text,
+                raw_text=raw_text if len(raw_text) <= MAX_RAW_CHARS else None,
                 response_id=response_id,
                 model_id=self.model_id,
                 elapsed_s=time.monotonic() - started,
-                error=ModelError(kind="malformed_output", message="response is not a JSON object"),
+                error=ModelError(kind="malformed_output", message=str(exc)),
             )
-
-        payload = (
-            copy.deepcopy(dict(response.payload))
-            if response.payload is not None
-            else default_payload(request)
-        )
         return ModelResult(
-            parsed=payload,
-            raw_text=json.dumps(payload, sort_keys=True),
+            parsed=parsed,
+            raw_text=raw_text,
             response_id=response_id,
             model_id=self.model_id,
             elapsed_s=time.monotonic() - started,
@@ -126,6 +130,7 @@ def default_payload(request: ModelRequest) -> dict[str, Any]:
         }
     return {
         # Execution status is app-owned, so model output never includes it.
+        "sufficient": True,
         "observations": [
             {
                 "text": f"Fake {request.role} evidence.",
@@ -136,3 +141,37 @@ def default_payload(request: ModelRequest) -> dict[str, Any]:
         "uncertainty": "medium",
         "limitations": ["Deterministic fake output; not a real visual assessment."],
     }
+
+
+def contradictory_assessment(frame_id: str) -> FakeResponse:
+    """Valid JSON whose judgment is self-contradictory (high risk yet no supported conflict)."""
+    return FakeResponse(
+        payload={
+            "risk_level": "high",
+            "event_state": "no_supported_conflict",
+            "event_type": "vehicle_pedestrian",
+            "observations": [
+                {"text": "Contradictory.", "frame_ids": [frame_id], "kind": "observed"}
+            ],
+            "uncertainty": "low",
+        }
+    )
+
+
+def future_frame_assessment() -> FakeResponse:
+    """Valid-looking output that cites a frame outside the request window."""
+    return FakeResponse(
+        payload={
+            "risk_level": "low",
+            "event_state": "no_supported_conflict",
+            "event_type": "vehicle_pedestrian",
+            "observations": [
+                {"text": "Cites the future.", "frame_ids": ["f-9999.000000"], "kind": "observed"}
+            ],
+            "uncertainty": "low",
+        }
+    )
+
+
+def malformed(raw_text: str = "{not valid json") -> FakeResponse:
+    return FakeResponse(kind="raw", raw_text=raw_text)

@@ -134,19 +134,24 @@ class Assessment(StrictModel):
                     f"a {self.status} assessment cannot carry observations, "
                     "an event type or uncertainty"
                 )
-        if self.event_state == "unknown" and self.risk_level != "unknown":
-            raise ValueError("unknown event_state requires unknown risk_level")
-        if self.event_state == "no_supported_conflict" and self.risk_level in ("medium", "high"):
-            raise ValueError("no_supported_conflict is inconsistent with medium/high risk")
-        needs_evidence = self.risk_level == "high" or self.event_state in (
-            "suspected_incident",
-            "observed_incident",
-        )
-        if needs_evidence and not any(obs.kind == "observed" for obs in self.observations):
-            raise ValueError(
-                "high-risk and incident claims need at least one observed, frame-referenced claim"
-            )
+        check_judgment(self.risk_level, self.event_state, self.observations)
         return self
+
+
+def check_judgment(risk_level: str, event_state: str, observations: Iterable[Observation]) -> None:
+    """Cross-field rules shared by `Assessment` and the model-output schema; raises ValueError."""
+    if event_state == "unknown" and risk_level != "unknown":
+        raise ValueError("unknown event_state requires unknown risk_level")
+    if event_state == "no_supported_conflict" and risk_level in ("medium", "high"):
+        raise ValueError("no_supported_conflict is inconsistent with medium/high risk")
+    needs_evidence = risk_level == "high" or event_state in (
+        "suspected_incident",
+        "observed_incident",
+    )
+    if needs_evidence and not any(obs.kind == "observed" for obs in observations):
+        raise ValueError(
+            "high-risk and incident claims need at least one observed, frame-referenced claim"
+        )
 
 
 def unknown_frame_refs(observations: Iterable[Observation], window: ObservationWindow) -> list[str]:

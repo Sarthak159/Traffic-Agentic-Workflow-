@@ -5,9 +5,10 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from .config import AppConfig, ConfigError, validate_config
-from .contracts import Assessment, FrameRef, ObservationWindow, SpecialistEvidence
+from .contracts import FrameRef, ObservationWindow
 from .providers.base import ModelRequest
-from .providers.fake import FakeProvider, FakeResponse
+from .providers.fake import FakeProvider, FakeResponse, malformed
+from .providers.output import validate_output
 
 
 def synthetic_window() -> ObservationWindow:
@@ -83,33 +84,20 @@ async def run_self_test(cfg: AppConfig) -> bool:
         lambda: first.parsed == second.parsed and first.response_id == second.response_id,
     )
     check(
-        "fake assessment validates as typed Assessment",
-        lambda: (
-            Assessment(
-                window_id=window.window_id,
-                status="ok",
-                horizon_s=cfg.workflow.horizon_seconds,
-                **first.parsed,
-            )
-            is not None
-        ),
+        "fake assessment validates as AssessmentOutput",
+        lambda: validate_output("assessment", first.parsed, window).ok,
     )
     spec = await provider.generate(_request(cfg, window, "motion", "specialist_evidence"))
     check(
-        "fake specialist validates as SpecialistEvidence",
-        lambda: (
-            SpecialistEvidence(
-                specialist_id="motion", window_id=window.window_id, status="ok", **spec.parsed
-            )
-            is not None
-        ),
+        "fake specialist validates as SpecialistOutput",
+        lambda: validate_output("specialist_evidence", spec.parsed, window).ok,
     )
     check("fake call counter", lambda: provider.call_count == 2)
 
     failing = FakeProvider(
         script={
             "main": [
-                FakeResponse(kind="malformed"),
+                malformed(),
                 FakeResponse(kind="timeout"),
                 FakeResponse(kind="error"),
             ]

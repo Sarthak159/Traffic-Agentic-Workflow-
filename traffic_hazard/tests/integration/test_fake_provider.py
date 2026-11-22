@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 from traffic_hazard.providers.base import ModelError, ModelProvider, ModelRequest, ModelResult
-from traffic_hazard.providers.fake import FakeProvider, FakeResponse
+from traffic_hazard.providers.fake import FakeProvider, FakeResponse, malformed
 from traffic_hazard.selftest import synthetic_window
 
 
@@ -37,21 +37,17 @@ async def test_scripted_sequence_and_failures() -> None:
         script={
             "main": [
                 FakeResponse(payload={"risk_level": "none"}),
-                FakeResponse(kind="malformed"),
+                malformed(),
                 FakeResponse(kind="error", message="boom"),
             ]
         }
     )
     first = await provider.generate(_request())
-    malformed = await provider.generate(_request())
+    bad = await provider.generate(_request())
     error = await provider.generate(_request())
     repeat = await provider.generate(_request())
     assert first.parsed == {"risk_level": "none"}
-    assert (
-        malformed.parsed is None
-        and malformed.raw_text
-        and malformed.error.kind == "malformed_output"
-    )
+    assert bad.parsed is None and bad.raw_text and bad.error.kind == "malformed_output"
     assert error.error == ModelError(kind="provider_error", message="boom")
     assert repeat.error.kind == "provider_error"  # The last scripted entry repeats.
     assert provider.call_count == 4

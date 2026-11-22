@@ -1,4 +1,4 @@
-# Traffic hazard app: Phase 0 scaffold and Phase 1 causal video windows
+# Traffic hazard app: Phase 0 scaffold, Phase 1 causal video windows, Phase 2 provider boundary (fake path)
 
 This ExecPlan is a living document. The sections Progress, Surprises & Discoveries, Decision Log, and Outcomes & Retrospective must stay up to date as work proceeds. It is maintained in accordance with `PLANS.md` at the repository root. The research specification it implements is `TRAFFIC_AGENT_PIPELINE.md` at the repository root (sections 3, 4, 5 and 16).
 
@@ -13,6 +13,9 @@ After this work a developer can, from `traffic_hazard/`, install an isolated app
 - [x] (2026-11-22) Phase 0: independent review (2 cycles, all findings fixed), gate recorded, commit.
 - [x] (2026-11-22) Phase 1: video reader (PyAV), encoding, window builder, replay clock, `windows` command, synthetic fixtures, causality tests.
 - [x] (2026-11-22) Phase 1: independent review (2 cycles, all findings fixed), manual contact-sheet inspection, gate recorded, commit.
+- [x] (2026-11-22) User approved Phase 2 with the fake provider only (no real adapter code, no live calls).
+- [x] (2026-11-22) Phase 2 (fake path): strict output parsing and model-output schemas, guarded provider calls, provider factory, fake fixtures (contradictory/invalid-frame), `probe` command, provider contract tests.
+- [x] (2026-11-22) Phase 2: independent review (2 cycles, all findings fixed), fake gate recorded, real gate blocked, commit.
 
 ## Surprises & Discoveries
 
@@ -48,6 +51,16 @@ After this work a developer can, from `traffic_hazard/`, install an isolated app
 ## Outcomes & Retrospective
 
 Phases 0 and 1 pass their offline gates (see BUILD_STATUS.md). A developer can install the app, validate configs, run an offline self-test, and turn a local video into causal, content-addressed observation windows with manifests and contact sheets. The independent reviews caught two real causality defects that the first tests missed: untimed decode issues attributed to the previous frame, and a whole-file-hash default source ID. The lesson is to test causality end to end through the CLI, not only at the builder boundary. Remaining gaps: native-video transport, real footage and every model-dependent phase.
+
+## Phase 2 scope contract (fake path)
+
+Required behavior: every provider result passes through one shared path. Raw text must be exactly one JSON object; there is no text repair, and duplicate keys and NaN are rejected. That object is validated against a model-output schema (`AssessmentOutput` or `SpecialistOutput`) that excludes app-owned fields (window ID, status, times, record IDs), and every referenced frame ID is checked against the request window. Provider calls go through `guarded_generate`, which enforces the request deadline with a monotonic clock and turns provider exceptions into typed errors (never risk judgments). `traffic-hazard probe --config configs/local_fake.yaml` runs the capability probe matrix against the configured provider and writes a report. Probes that need a model to inspect pixels or call tools are reported as `not_evaluable` for the fake provider, never as passed.
+
+Compatibility: unreleased branch-local code; Phase 0/1 interfaces may be changed directly. `ModelResult.parsed` stays a JSON object; domain mapping to `Assessment`/`SpecialistEvidence` records is Phase 3 work.
+
+Intentionally unsupported: real providers (`model.provider` still only accepts `fake`), `--allow-live`, native-video transport, SDK `Runner`/tool-calling integration (decided in Phase 3/5 once real tool-call support is known), retries (config `allow_retries` is not acted on), and code-fence or prose stripping of model output.
+
+Supported alternative: none needed; the real adapter will implement the same `ModelProvider` protocol and reuse `parse_model_json` and `validate_output`.
 
 ## Context and Orientation
 

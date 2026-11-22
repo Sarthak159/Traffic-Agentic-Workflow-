@@ -132,7 +132,69 @@ def build_parser() -> argparse.ArgumentParser:
     windows.add_argument("--contact-sheet", action="store_true", help="write first/last sheets")
     windows.add_argument("--overwrite", action="store_true", help="allow a non-empty --out")
     windows.set_defaults(func=cmd_windows)
+
+    probe = sub.add_parser(
+        "probe", help="run the model capability probe against the configured provider"
+    )
+    probe.add_argument("--config", type=Path, required=True)
+    probe.add_argument("--video", type=Path, help="probe on the first window of a local video")
+    probe.add_argument("--source-id", help="logical source ID (required with --video)")
+    probe.add_argument("--out", type=Path, help="write probe_report.json to this directory")
+    probe.add_argument("--overwrite", action="store_true", help="allow a non-empty --out")
+    probe.add_argument("--repeats", type=int, default=5, help="latency attempts (1-100)")
+    probe.set_defaults(func=cmd_probe)
     return parser
+
+
+def cmd_probe(args: argparse.Namespace) -> int:
+    from .probe import first_video_window, run_probe, synthetic_probe_window
+    from .providers.factory import create_provider
+    from .storage.artifacts import OutputExistsError, prepare_output_dir, write_json_atomic
+    from .video.reader import VideoOpenError
+
+    cfg = _load(args.config)
+    if cfg is None:
+        return EXIT_USAGE
+    apply_tracing_policy(cfg)
+    if not 1 <= args.repeats <= 100:
+        print("error: --repeats must be between 1 and 100", file=sys.stderr)
+        return EXIT_USAGE
+    if args.video is not None and not args.source_id:
+        print("error: --source-id is required with --video", file=sys.stderr)
+        return EXIT_USAGE
+    if args.video is not None:
+        try:
+            window = first_video_window(args.video, cfg, args.source_id)
+        except VideoOpenError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return EXIT_USAGE
+        if window is None:
+            print("error: the video yields no full observation window", file=sys.stderr)
+            return EXIT_USAGE
+    else:
+        window = synthetic_probe_window(cfg)
+    out = None
+    if args.out is not None:
+        # Created only once a window exists, so a refused run leaves no directory behind.
+        try:
+            out = prepare_output_dir(args.out, args.overwrite)
+        except OutputExistsError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return EXIT_USAGE
+
+    report = asyncio.run(run_probe(cfg, create_provider(cfg.model), window, args.repeats))
+    if report["simulated"]:
+        print(f"NOTICE            {report['notice']}")
+    print(f"provider/model    {report['provider']} / {report['effective_model_ids']}")
+    for probe in report["probes"]:
+        print(f"{probe['status']:<14}    {probe['name']}: {probe['detail']}")
+    latency = report["latency"]
+    print(f"latency           p50={latency['p50_s']} s, p95={latency['p95_s']} s")
+    if out is not None:
+        write_json_atomic(out / "probe_report.json", report)
+        print(f"report            {out / 'probe_report.json'}")
+    failed = any(p["status"] == "failed" for p in report["probes"])
+    return EXIT_FAILED if failed else EXIT_OK
 
 
 def cmd_windows(args: argparse.Namespace) -> int:

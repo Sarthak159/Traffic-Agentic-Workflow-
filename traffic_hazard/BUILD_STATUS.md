@@ -1,6 +1,6 @@
 # Build status
 
-Current phase: 2 (not started; awaiting approval to advance)
+Current phase: 2 (fake gate passed; real gate blocked)
 Repository commit (base for Phase 0): b2772bf00ae461c66c469ce2b599295445df1612 (branch `traffic-agent-workflow`)
 Last verified environment: macOS 27.0.1 arm64, CPython 3.12.11 (uv 0.11.3), openai-agents 0.25.0 (editable, repo root), pydantic 2.14.4, PyAV 16.1.0, numpy 2.5.5, pillow 12.3.0
 
@@ -8,7 +8,7 @@ Last verified environment: macOS 27.0.1 arm64, CPython 3.12.11 (uv 0.11.3), open
 |---|---|---|
 | 0 | passed (offline) | see Phase 0 checkpoint below |
 | 1 | passed (offline, synthetic footage) | see Phase 1 checkpoint below |
-| 2 | pending | fake and real gates tracked separately; real gate blocked: no Qwen access yet |
+| 2 | fake gate passed; real gate blocked (no Qwen access; user approved fake-only work) | see Phase 2 checkpoint below |
 | 3–11 | pending | not run |
 
 ## Phase 0 checkpoint (2026-11-22)
@@ -73,3 +73,35 @@ Last verified environment: macOS 27.0.1 arm64, CPython 3.12.11 (uv 0.11.3), open
 - Blockers: none for the offline gate. Real footage is not yet authorized; only synthetic clips were used.
 - Next smallest task: Phase 2, the provider abstraction and capability probe (fake path; the real probe is blocked on Qwen access).
 - Rollback config or commit: revert the Phase 1 commit; Phase 0 stays usable.
+
+## Phase 2 checkpoint, fake path only (2026-11-22)
+
+- Scope approved by the user: fake provider only, with no real adapter code and no live calls.
+- Files changed:
+  - New: `src/traffic_hazard/providers/{output,guard,factory}.py`, `src/traffic_hazard/probe.py`, `tests/contract/test_provider.py`, `tests/integration/test_probe.py`.
+  - Changed: `providers/fake.py` (fake output now goes through the shared strict parser; new `raw`/`raise` kinds and contradictory/future-frame/malformed fixtures), `contracts.py` (`check_judgment` shared by `Assessment` and `AssessmentOutput`), `cli.py` (`probe` command), `selftest.py`, `README.md`.
+- Commands actually run (from `traffic_hazard/`):
+  - `uv run pytest -q tests` → 137 passed (after review fixes).
+  - `uv run traffic-hazard probe --config configs/local_fake.yaml --out runs/probe_fake` → exit 0. connectivity, json_assessment, json_specialist and cost_latency passed. still_image, ordered_frames, reversed_frames, control_frames and tool_selection are not_evaluable; native_video was skipped. 7 attempts in total.
+  - `uv run traffic-hazard self-test` → 10/10.
+  - From repo root: `uv run ruff check traffic_hazard` and `ruff format --check traffic_hazard` → clean.
+- Gate:
+  - [x] Fake provider tests pass for success, malformed output, timeout and explicit failures (tests/contract/test_provider.py, tests/integration/test_fake_provider.py). Contradictory and out-of-window outputs are rejected by output validation, and the guard turns raising, hanging and wrong-type providers into typed errors.
+  - [ ] Real model consumes time-ordered visual observations and returns valid typed information on authorized data. **Blocked:** no Qwen model ID, endpoint or credentials, and no authorized footage.
+  - [ ] Record effective model ID/revision, transport, tool support, output mode, cost, time and failures for a real model. The probe report already records these fields; they are not yet measured on a real model.
+  - [x] No claims of accurate hazard anticipation. Fake probe reports are marked `simulated: true` with a notice, and media and tool probes are never reported as passed.
+- Independent review (ordinary tier): fresh-context reviewer. Cycle 1 found P2×2 and P3×1: some malformed responses were classified as `provider_error`; the synthetic probe crashed for intervals of 2–4 s; and model-controlled key names leaked into errors and the probe report. All were fixed with tests, together with three uncertainty items: late results, guard-measured latency, and `1e999`. Cycle 2 confirmed every fix with no new findings; it also fuzzed 504 valid video configs through `synthetic_probe_window`, and all produced a window. 2 of 6 review revisions used.
+- Real model tested? no.
+- Decisions / deviations:
+  - The model never supplies app-owned fields. `AssessmentOutput` excludes window ID, status, horizon and record IDs; `SpecialistOutput` uses `sufficient: bool`, which the app maps to `insufficient_evidence`. Mapping into `Assessment`/`SpecialistEvidence` records happens in Phase 3.
+  - Output parsing is strict: exactly one JSON object with outer whitespace only. Markdown fences, prose, duplicate keys, NaN/Infinity/overflowing floats, oversized, too-deep or huge-integer responses all end up as `malformed_output` end to end through the guard, with no repair. If a real Qwen endpoint wraps JSON in fences, any repair must be added explicitly and counted.
+  - `guarded_generate` enforces `timeout_s` (+0.25 s grace) and treats a result that arrives late (after cancellation was swallowed) as a timeout. Its own monotonic measurement replaces the provider's `elapsed_s`, and error messages keep only the exception type name. Model-controlled key names never appear in validation errors (`<extra>`), and at most 8 errors are reported.
+  - SDK `Runner`/tool integration is deferred to Phase 3/5, once real tool-call support is known. `allow_retries` is not acted on: no retries happen, and every attempt is counted.
+  - No `--allow-live` flag yet: no live provider exists, and the config accepts only `fake`.
+- Carry-forward items for the real adapter and Phase 3 (not reachable with the fake provider):
+  - Move "drop `raw_text` over 100k chars" from `fake.py` into a shared helper, so a real adapter cannot hit a `provider_error` on oversized output.
+  - Have the guard re-raise caller cancellation that a provider swallowed (`asyncio.current_task().cancelling()`).
+  - Phase 3 must make sure that persisting model text containing lone UTF-16 surrogates (`"\ud800"`) cannot fail record writes.
+- Blockers: the real Phase 2 gate needs the exact Qwen model ID, endpoint, credentials, a decision on footage handling, and approval for paid calls.
+- Next smallest task: Phase 3, the single-agent baseline on the fake provider (prompts/main_v1.md, normalizing output into immutable `AssessmentRecord`s, and a `replay --mode single` command).
+- Rollback config or commit: revert the Phase 2 commit; Phases 0–1 are unaffected apart from the self-test and fake-provider tests updated in it.
