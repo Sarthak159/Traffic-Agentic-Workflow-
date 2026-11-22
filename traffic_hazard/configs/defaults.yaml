@@ -1,0 +1,47 @@
+# Single source of truth for default values. Development defaults, not validated optimal settings
+# (TRAFFIC_AGENT_PIPELINE.md section 3). Other configs inherit with `extends: defaults.yaml`.
+schema_version: 1
+video:
+  window_seconds: 5.0
+  assessment_interval_seconds: 1.0
+  sample_fps: 4.0
+  max_frames: 20
+  max_width: 1280
+  transport: frames           # frames or native_video, validated per provider
+  startup: require_full_window
+  reject_out_of_order: true
+model:
+  provider: fake              # Phase 2 adds qwen_api and local_vlm
+  model_id: fake-v1
+  revision: null
+  temperature: 0.0
+  max_output_tokens: 600
+  request_timeout_seconds: 8.0
+  allow_retries: false
+workflow:
+  mode: adaptive
+  main_prompt: main_v1
+  horizon_seconds: 5
+  available_specialists: [motion, spatial, conflict]
+  fixed_specialists: [motion, spatial]
+  max_unique_specialists: 2
+  max_specialist_calls: 2
+  max_total_model_calls: 4      # route + two specialists + final synthesis
+  max_total_input_tokens: null  # configure after capability/cost probe
+  max_elapsed_seconds: 10.0     # offline development cap, NOT a real-time claim
+  max_parallel_specialists: 1
+  allow_repeat_specialist: false
+alerts:
+  mode: simulated
+  minimum_risk: high
+  require_evidence: true
+  require_human_review: true
+  max_staleness_seconds: 2.0    # illustrative; tune on validation only
+  episode_gap_seconds: 3.0
+  cooldown_seconds: 5.0
+  consecutive_windows: 1
+logging:
+  save_raw_responses: false
+  save_private_frames: false
+  sdk_remote_tracing: false
+  cache_mode: off

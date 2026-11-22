@@ -1,0 +1,8 @@
+# Offline development: deterministic fake provider, no network, no credentials.
+extends: defaults.yaml
+model:
+  provider: fake
+  model_id: fake-v1
+logging:
+  sdk_remote_tracing: false
+  cache_mode: off

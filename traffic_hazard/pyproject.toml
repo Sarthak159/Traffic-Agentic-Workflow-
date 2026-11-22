@@ -1,0 +1,40 @@
+[project]
+name = "traffic-hazard"
+version = "0.1.0"
+description = "Research prototype: adaptive multimodal traffic hazard anticipation on recorded video (simulation only)."
+requires-python = ">=3.11,<3.13"
+dependencies = [
+    "openai-agents",
+    "pydantic>=2.10,<3",
+    "pyyaml>=6.0,<7",
+    "av>=14,<17",
+    "numpy>=1.26,<3",
+    "pillow>=10,<13",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<10", "pytest-asyncio>=0.24,<2"]
+
+[project.scripts]
+traffic-hazard = "traffic_hazard.cli:main"
+
+[tool.uv]
+# The app lives inside the SDK repository but is not a member of the SDK workspace.
+package = true
+
+[tool.uv.sources]
+openai-agents = { path = "..", editable = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/traffic_hazard"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+markers = ["live: opt-in tests that contact a real model provider (never run by default)"]
+addopts = "-m 'not live'"

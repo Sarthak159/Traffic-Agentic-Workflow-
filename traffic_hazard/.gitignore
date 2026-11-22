@@ -1,0 +1,15 @@
+# Private research data and outputs never enter Git.
+data/*
+!data/README.md
+runs/
+.env
+# The repository root ignores `.env*`; the template must still be committed.
+!.env.example
+*.mp4
+*.mkv
+*.avi
+*.mov
+*.safetensors
+*.gguf
+.venv/
+.pytest_cache/
